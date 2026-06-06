@@ -266,49 +266,60 @@ With BuildKit enabled, the WORKDIR is created with the correct ownership for the
 
 ## Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Terraform | ≥ 1.5 |
-| Helm | ≥ 3.12 |
-| kubectl | any |
-| rsync | any (usually pre-installed) |
-| A Hetzner Cloud account | — |
-| A domain on Cloudflare DNS | — |
+| Tool | Min version | Notes |
+|------|-------------|-------|
+| Terraform | ≥ 1.5 | Used to provision Hetzner + Cloudflare |
+| Helm | ≥ 3.12 | Used locally to install Backstage |
+| kubectl | any | Pointed at the remote cluster via `kubeconfig.yaml` |
+| rsync | any | Pre-installed on macOS/Linux |
+| SSH key pair | — | Default: `~/.ssh/id_rsa` + `~/.ssh/id_rsa.pub` |
+| Hetzner Cloud account | — | API token with Read & Write |
+| Cloudflare account | — | API token with `Zone:DNS:Edit` on your domain |
 
 ---
 
 ## Quick Start
 
-### 1. Clone and configure secrets
+### 1. Clone the repo
 
 ```bash
 git clone https://github.com/yourusername/kratix-idp
 cd kratix-idp
+```
+
+### 2. Create your secrets file
+
+```bash
 cp secrets.example.env secrets.env
 ```
 
-Edit `secrets.env`:
+Edit `secrets.env` — every field is required:
 
 ```env
+# Hetzner Cloud API token
+# Console → Project → Security → API Tokens → Create token (Read & Write)
 HCLOUD_TOKEN=your-hetzner-api-token
-CLOUDFLARE_TOKEN=your-cloudflare-api-token  # Zone:DNS:Edit permission
-DOMAIN=kratix.yourdomain.com                # must be on Cloudflare
+
+# Cloudflare API token
+# My Profile → API Tokens → Create Token → Zone:DNS:Edit
+CLOUDFLARE_TOKEN=your-cloudflare-api-token
+
+# FQDN for the portal — must be a domain you manage in Cloudflare
+DOMAIN=kratix.yourdomain.com
+
+# SSH key Terraform will upload to the server (default is fine if ~/.ssh/id_rsa exists)
 SSH_PUBLIC_KEY_PATH=~/.ssh/id_rsa.pub
 SSH_PRIVATE_KEY_PATH=~/.ssh/id_rsa
+
+# MinIO object store credentials (choose any values)
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
+
+# Backstage PostgreSQL password (choose any value)
 POSTGRES_PASSWORD=backstage
 ```
 
-### 2. Point DNS at your server
-
-After `make infra`, point an A record for your domain at the server IP output:
-
-```bash
-make infra
-# → server_ip = 1.2.3.4
-# Add DNS: kratix.yourdomain.com → 1.2.3.4
-```
+> `secrets.env` is gitignored — it will never be committed.
 
 ### 3. Deploy everything
 
@@ -316,15 +327,17 @@ make infra
 make all
 ```
 
-This runs 5 steps (~20 minutes total):
+That's it. One command runs the full pipeline (~20 minutes):
 
-| Step | What it does | Time |
+| Step | What happens | Time |
 |------|-------------|------|
-| `infra` | Terraform: Hetzner server + firewall | ~1 min |
-| `bootstrap` | SSH: k3s, Helm, MinIO, Kratix, Flux, Traefik | ~8 min |
-| `build-backstage` | SSH: create Backstage app + build Docker image | ~10 min |
-| `manifests` | kubectl: RBAC, TLS cert, Backstage Helm, Flux config | ~3 min |
-| `promises` | kubectl: apply nginx Promise | ~30s |
+| `infra` | Terraform provisions a Hetzner CPX22 server, uploads your SSH key, creates a firewall, and **creates the `kratix.yourdomain.com` DNS A record in Cloudflare automatically** | ~1 min |
+| `bootstrap` | SSH into the server: installs k3s, Helm, cert-manager, MinIO, Crossplane, Kratix, Flux, and Traefik | ~8 min |
+| `build-backstage` | SSH into the server: scaffolds a Backstage app with `@backstage/create-app`, copies in the custom Kratix backend module, and builds a Docker image | ~10 min |
+| `manifests` | Runs locally via kubectl: creates the Cloudflare secret, Let's Encrypt ClusterIssuer, Kratix state store, Backstage RBAC, TLS certificate, and installs Backstage via Helm | ~3 min |
+| `promises` | Alias for `manifests` — promises are applied at the end of the same script | — |
+
+> **No manual DNS step needed.** Terraform creates the Cloudflare A record as part of `make infra` and removes it on `make teardown`.
 
 ### 4. Open the portal
 
@@ -332,7 +345,20 @@ This runs 5 steps (~20 minutes total):
 https://kratix.yourdomain.com
 ```
 
-It may take 2-3 minutes for the Let's Encrypt certificate to be issued on first deploy.
+The Let's Encrypt certificate is issued automatically via Cloudflare DNS-01 challenge. Allow 2–3 minutes on first deploy for it to appear.
+
+### Individual steps
+
+You can also run steps independently if you need to re-apply part of the stack:
+
+```bash
+make infra            # Provision server + DNS only
+make bootstrap        # (Re-)install k3s + Helm charts on the server
+make build-backstage  # (Re-)build the Backstage Docker image
+make manifests        # (Re-)apply all K8s manifests + Helm + Promise
+make status           # Show all pod status
+make teardown         # Destroy server, firewall, and DNS record
+```
 
 ---
 

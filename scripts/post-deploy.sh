@@ -132,26 +132,53 @@ EOF
 )
 
 kubectl create namespace backstage --dry-run=client -o yaml | kubectl apply -f -
-kubectl create configmap backstage-app-config \
+
+# Use a distinct name so it never conflicts with the Helm-managed backstage-app-config
+# ConfigMap that the Backstage chart creates from backstage.appConfig.* values.
+kubectl create configmap kratix-backstage-extra \
   --namespace backstage \
-  --from-literal=app-config.yaml="$BACKSTAGE_CONFIGMAP" \
+  --from-literal=app-config.extra.yaml="$BACKSTAGE_CONFIGMAP" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+# If there is a failed Helm release, tear it down first.
+if helm status backstage -n backstage &>/dev/null 2>&1; then
+  HELM_STATUS=$(helm status backstage -n backstage -o json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['status'])")
+  if [ "$HELM_STATUS" = "failed" ]; then
+    log "Cleaning up failed Backstage Helm release..."
+    helm uninstall backstage -n backstage --ignore-not-found || true
+  fi
+fi
+
+# Pre-create the backstage-postgresql secret with the exact key names the Bitnami
+# chart expects ("user-password" and "postgres-password"). The chart only creates
+# the secret when it doesn't already exist, so pre-creating ensures the keys are
+# consistent across installs and upgrades — avoiding the "user-password not found"
+# error caused by chart version differences.
+kubectl delete secret backstage-postgresql -n backstage --ignore-not-found || true
+kubectl delete pvc --selector='app.kubernetes.io/instance=backstage' -n backstage --ignore-not-found || true
+kubectl create secret generic backstage-postgresql \
+  --namespace backstage \
+  --from-literal=user-password="${POSTGRES_PASSWORD}" \
+  --from-literal=postgres-password="${POSTGRES_PASSWORD}"
 
 helm upgrade --install backstage backstage/backstage \
   --namespace backstage \
+  --set backstage.image.registry=docker.io \
+  --set backstage.image.repository=library/kratix-portal \
   --set backstage.image.tag=latest \
+  --set backstage.image.pullPolicy=IfNotPresent \
   --set backstage.appConfig.app.baseUrl="https://${DOMAIN}" \
   --set backstage.appConfig.backend.baseUrl="https://${DOMAIN}" \
   --set backstage.appConfig.backend.cors.origin="https://${DOMAIN}" \
   --set postgresql.enabled=true \
-  --set postgresql.auth.password="${POSTGRES_PASSWORD}" \
-  --set "backstage.extraEnvVars[0].name=POSTGRES_PASSWORD" \
-  --set "backstage.extraEnvVars[0].value=${POSTGRES_PASSWORD}" \
-  --set "backstage.extraVolumes[0].name=app-config" \
-  --set "backstage.extraVolumes[0].configMap.name=backstage-app-config" \
-  --set "backstage.extraVolumeMounts[0].name=app-config" \
+  --set postgresql.auth.existingSecret=backstage-postgresql \
+  --set postgresql.auth.secretKeys.userPasswordKey=user-password \
+  --set postgresql.auth.secretKeys.adminPasswordKey=postgres-password \
+  --set "backstage.extraVolumes[0].name=kratix-extra-config" \
+  --set "backstage.extraVolumes[0].configMap.name=kratix-backstage-extra" \
+  --set "backstage.extraVolumeMounts[0].name=kratix-extra-config" \
   --set "backstage.extraVolumeMounts[0].mountPath=/app/app-config.extra.yaml" \
-  --set "backstage.extraVolumeMounts[0].subPath=app-config.yaml" \
+  --set "backstage.extraVolumeMounts[0].subPath=app-config.extra.yaml" \
   --set "backstage.args[0]=--config" \
   --set "backstage.args[1]=app-config.yaml" \
   --set "backstage.args[2]=--config" \

@@ -4,12 +4,40 @@ terraform {
       source  = "hetznercloud/hcloud"
       version = "~> 1.45"
     }
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 4.0"
+    }
   }
   required_version = ">= 1.5"
 }
 
 provider "hcloud" {
   token = var.hcloud_token
+}
+
+provider "cloudflare" {
+  api_token = var.cloudflare_token
+}
+
+locals {
+  # "kratix.didibe.dev" → zone = "didibe.dev", record = "kratix"
+  domain_parts = split(".", var.domain)
+  zone_name    = join(".", slice(local.domain_parts, 1, length(local.domain_parts)))
+  record_name  = local.domain_parts[0]
+}
+
+data "cloudflare_zone" "main" {
+  name = local.zone_name
+}
+
+resource "cloudflare_record" "kratix" {
+  zone_id = data.cloudflare_zone.main.id
+  name    = local.record_name
+  content = hcloud_server.kratix.ipv4_address
+  type    = "A"
+  ttl     = 60
+  proxied = false
 }
 
 resource "hcloud_ssh_key" "kratix" {
@@ -88,7 +116,15 @@ resource "hcloud_server" "kratix" {
   user_data = <<-EOF
     #!/bin/bash
     apt-get update -qq
-    apt-get install -y -qq curl git docker.io apt-transport-https
+    apt-get install -y -qq curl git ca-certificates apt-transport-https
+    # Install Docker CE from official repo (includes docker-buildx-plugin)
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+      > /etc/apt/sources.list.d/docker.list
+    apt-get update -qq
+    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin
     systemctl enable --now docker
     usermod -aG docker root
   EOF

@@ -87,18 +87,30 @@ function minioRequest(
   });
 }
 
+// Use the (z) => schema factory so Backstage passes its own zod v3 instance,
+// avoiding version mismatches with any zod v4 in node_modules.
 const createResourceRequestAction = () =>
-  createTemplateAction<{
-    name: string;
-    namespace?: string;
-    apiVersion: string;
-    kind: string;
-    spec?: Record<string, any>;
-  }>({
+  createTemplateAction({
     id: "kratix:resourcerequest:create",
     description: "Submit a Kratix ResourceRequest to the platform cluster",
+    schema: {
+      input: (z: any) =>
+        z.object({
+          name: z.string(),
+          namespace: z.string().optional().default("default"),
+          apiVersion: z.string(),
+          kind: z.string(),
+          spec: z.record(z.any()).optional().default({}),
+        }),
+    },
     async handler(ctx) {
-      const { name, namespace = "default", apiVersion, kind, spec = {} } = ctx.input;
+      const { name, namespace, apiVersion, kind, spec } = ctx.input as {
+        name: string;
+        namespace: string;
+        apiVersion: string;
+        kind: string;
+        spec: Record<string, any>;
+      };
       const tokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
       const caPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
       if (!fs.existsSync(tokenPath)) throw new Error("No service account token");
@@ -122,16 +134,25 @@ const createResourceRequestAction = () =>
   });
 
 const deleteResourceRequestAction = () =>
-  createTemplateAction<{
-    name: string;
-    namespace?: string;
-    apiVersion: string;
-    kind: string;
-  }>({
+  createTemplateAction({
     id: "kratix:resourcerequest:delete",
     description: "Delete a Kratix ResourceRequest from the platform cluster",
+    schema: {
+      input: (z: any) =>
+        z.object({
+          name: z.string(),
+          namespace: z.string().optional().default("default"),
+          apiVersion: z.string(),
+          kind: z.string(),
+        }),
+    },
     async handler(ctx) {
-      const { name, namespace = "default", apiVersion, kind } = ctx.input;
+      const { name, namespace, apiVersion, kind } = ctx.input as {
+        name: string;
+        namespace: string;
+        apiVersion: string;
+        kind: string;
+      };
       const tokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
       const caPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
       if (!fs.existsSync(tokenPath)) throw new Error("No service account token");
@@ -161,23 +182,28 @@ const deleteResourceRequestAction = () =>
   });
 
 const registerCatalogEntityAction = () =>
-  createTemplateAction<{
-    name: string;
-    promiseKind: string;
-    namespace?: string;
-    owner?: string;
-    description?: string;
-  }>({
+  createTemplateAction({
     id: "kratix:catalog:register",
     description: "Register a Kratix instance as a Backstage catalog entity via MinIO",
+    schema: {
+      input: (z: any) =>
+        z.object({
+          name: z.string(),
+          promiseKind: z.string(),
+          namespace: z.string().optional().default("default"),
+          owner: z.string().optional().default("platform-team"),
+          description: z.string().optional(),
+        }),
+    },
     async handler(ctx) {
-      const {
-        name,
-        promiseKind,
-        namespace = "default",
-        owner = "platform-team",
-        description = `${promiseKind} instance provisioned via Kratix`,
-      } = ctx.input;
+      const { name, promiseKind, namespace, owner, description: descriptionInput } = ctx.input as {
+        name: string;
+        promiseKind: string;
+        namespace: string;
+        owner: string;
+        description?: string;
+      };
+      const description = descriptionInput ?? `${promiseKind} instance provisioned via Kratix`;
       const lowerKind = promiseKind.toLowerCase();
       const catalogYaml = `apiVersion: backstage.io/v1alpha1
 kind: Component

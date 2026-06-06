@@ -16,6 +16,29 @@ if ! node --version 2>/dev/null | grep -q "^v20\|^v22"; then
   apt-get install -y -qq nodejs
 fi
 
+# ── Build tools (required by node-gyp for native modules) ────────────────────
+log "Ensuring build tools are present..."
+apt-get install -y -qq build-essential python3 python-is-python3 ca-certificates curl
+
+# ── Docker buildx plugin (required by Backstage Dockerfile which uses BuildKit) ─
+if ! docker buildx version &>/dev/null 2>&1; then
+  log "Installing docker-buildx-plugin..."
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+    > /etc/apt/sources.list.d/docker.list
+  apt-get update -qq
+  apt-get install -y -qq docker-buildx-plugin
+fi
+
+# ── Yarn ──────────────────────────────────────────────────────────────────────
+if ! command -v yarn &>/dev/null; then
+  log "Installing Yarn..."
+  corepack enable
+  corepack prepare yarn@stable --activate
+fi
+
 # ── Create Backstage app (skip if already exists) ─────────────────────────────
 if [ ! -d "$INSTALL_DIR" ]; then
   log "Creating Backstage app at $INSTALL_DIR (this takes 2-3 minutes)..."
@@ -58,9 +81,22 @@ node -e "
   }
 "
 
+# ── Skip isolated-vm native build ────────────────────────────────────────────
+# isolated-vm@6.x uses a V8 SourceLocation API removed in newer Node.js 20
+# builds. In Yarn 4, native builds are skipped via dependenciesMeta in
+# package.json. Backstage falls back to Node's built-in vm module when the
+# native addon is absent.
+node -e "
+  const fs = require('fs');
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  pkg.dependenciesMeta = pkg.dependenciesMeta || {};
+  pkg.dependenciesMeta['isolated-vm'] = { built: false };
+  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+"
+
 # ── Install dependencies ──────────────────────────────────────────────────────
 log "Installing dependencies (this takes 3-5 minutes)..."
-yarn install --immutable 2>&1 | tail -5
+yarn install 2>&1 | tail -30
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 log "Building TypeScript..."
@@ -71,10 +107,15 @@ yarn build:backend 2>&1 | tail -10
 
 # ── Build Docker image ────────────────────────────────────────────────────────
 log "Building Docker image kratix-portal:latest..."
-DOCKER_BUILDKIT=1 docker build packages/backend \
+docker build . \
   -f packages/backend/Dockerfile \
-  --tag kratix-portal:latest \
-  .
+  --tag kratix-portal:latest
 
 log "Docker image built ✓"
 docker images kratix-portal:latest
+
+# k3s uses containerd, not the Docker daemon. Import the image so k3s can use
+# it without pulling from a registry.
+log "Importing image into k3s containerd..."
+docker save kratix-portal:latest | k3s ctr images import -
+log "Image available in containerd ✓"

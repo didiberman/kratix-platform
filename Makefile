@@ -16,12 +16,16 @@ all: infra wait-ssh bootstrap build-backstage kubeconfig manifests promises
 	@echo "    Server IP:  $(SERVER_IP)"
 	@echo "    kubeconfig: $(KUBECONFIG_PATH)"
 
-## Step 1 — Provision Hetzner server
+## Step 1 — Provision Hetzner server + Cloudflare DNS record
 infra:
 	@test -n "$(HCLOUD_TOKEN)" || (echo "ERROR: HCLOUD_TOKEN not set. Copy secrets.example.env → secrets.env and fill in values." && exit 1)
+	@test -n "$(CLOUDFLARE_TOKEN)" || (echo "ERROR: CLOUDFLARE_TOKEN not set." && exit 1)
+	@test -n "$(DOMAIN)" || (echo "ERROR: DOMAIN not set." && exit 1)
 	terraform -chdir=terraform init -upgrade -input=false
 	terraform -chdir=terraform apply -auto-approve \
 	  -var="hcloud_token=$(HCLOUD_TOKEN)" \
+	  -var="cloudflare_token=$(CLOUDFLARE_TOKEN)" \
+	  -var="domain=$(DOMAIN)" \
 	  -var="ssh_public_key_path=$(SSH_PUBLIC_KEY_PATH)"
 
 ## Wait until SSH is reachable (cloud-init takes ~30s)
@@ -57,7 +61,7 @@ kubeconfig:
 	@echo "kubeconfig saved to $(KUBECONFIG_PATH)"
 
 ## Step 4 — Apply all Kubernetes manifests, install Backstage, load Promise
-manifests promises: kubeconfig
+manifests: kubeconfig
 	DOMAIN="$(DOMAIN)" \
 	CLOUDFLARE_TOKEN="$(CLOUDFLARE_TOKEN)" \
 	MINIO_ROOT_USER="$(MINIO_ROOT_USER)" \
@@ -65,13 +69,18 @@ manifests promises: kubeconfig
 	POSTGRES_PASSWORD="$(POSTGRES_PASSWORD)" \
 	  bash scripts/post-deploy.sh
 
+## Alias — promises are applied inside post-deploy.sh as part of manifests
+promises: manifests
+
 ## Show cluster status
 status:
 	@KUBECONFIG=$(KUBECONFIG_PATH) kubectl get pods -A
 
-## Destroy everything (server + firewall)
+## Destroy everything (server + firewall + DNS record)
 teardown:
 	terraform -chdir=terraform destroy -auto-approve \
 	  -var="hcloud_token=$(HCLOUD_TOKEN)" \
+	  -var="cloudflare_token=$(CLOUDFLARE_TOKEN)" \
+	  -var="domain=$(DOMAIN)" \
 	  -var="ssh_public_key_path=$(SSH_PUBLIC_KEY_PATH)"
 	rm -f $(KUBECONFIG_PATH)

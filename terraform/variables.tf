@@ -4,6 +4,17 @@ variable "hcloud_token" {
   sensitive   = true
 }
 
+variable "cloudflare_token" {
+  description = "Cloudflare API token (Zone:DNS:Edit)"
+  type        = string
+  sensitive   = true
+}
+
+variable "domain" {
+  description = "FQDN for the IDP (must be on Cloudflare DNS), e.g. kratix.didibe.dev"
+  type        = string
+}
+
 variable "ssh_public_key_path" {
   description = "Path to SSH public key"
   type        = string
