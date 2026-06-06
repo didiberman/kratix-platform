@@ -1,0 +1,58 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: idp
+  description: Internal Developer Platform
+spec:
+  owner: platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: kratix
+  description: Platform-as-a-Product framework — manages Promises and ResourceRequests
+  links:
+    - url: https://kratix.io
+      title: Kratix Docs
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: idp
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: crossplane
+  description: Infrastructure provisioning via XRDs and Compositions
+  links:
+    - url: https://crossplane.io
+      title: Crossplane Docs
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: idp
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: backstage
+  description: Developer portal — Software Catalog, Templates, TechDocs
+spec:
+  type: website
+  lifecycle: production
+  owner: platform-team
+  system: idp
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: flux
+  description: GitOps agent — watches MinIO state store and applies Kratix outputs to the cluster
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: idp

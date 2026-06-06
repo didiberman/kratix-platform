@@ -1,0 +1,65 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: nginx
+spec:
+  # CRD that platform users submit to request an nginx instance
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: nginxes.workshop.kratix.io
+    spec:
+      group: workshop.kratix.io
+      names:
+        kind: Nginx
+        plural: nginxes
+        singular: nginx
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    serviceType:
+                      type: string
+                      default: ClusterIP
+
+  # Only deploy to destinations labelled environment=platform
+  destinationSelectors:
+    - matchLabels:
+        environment: platform
+
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - name: generate
+                image: alpine:3.18
+                command: ["sh", "-c"]
+                args:
+                  - |
+                    NAME=$(grep "^  name:" /kratix/input/object.yaml | head -1 | awk "{print \$2}")
+                    TYPE=$(awk "/^spec:/{found=1} found && /serviceType:/{print \$2; exit}" /kratix/input/object.yaml)
+                    TYPE=${TYPE:-ClusterIP}
+
+                    printf "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: %s-nginx\n  namespace: default\n  labels:\n    app: %s-nginx\n    backstage.io/kubernetes-id: %s-nginx\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: %s-nginx\n  template:\n    metadata:\n      labels:\n        app: %s-nginx\n        backstage.io/kubernetes-id: %s-nginx\n    spec:\n      containers:\n        - name: nginx\n          image: nginx:1.26\n          ports:\n            - containerPort: 80\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: %s-nginx\n  namespace: default\n  labels:\n    app: %s-nginx\n    backstage.io/kubernetes-id: %s-nginx\nspec:\n  selector:\n    app: %s-nginx\n  ports:\n    - port: 80\n      targetPort: 80\n  type: %s\n" \
+                      "$NAME" "$NAME" "$NAME" \
+                      "$NAME" "$NAME" "$NAME" \
+                      "$NAME" "$NAME" "$NAME" \
+                      "$NAME" "$TYPE" \
+                      > /kratix/output/nginx.yaml
+
+                    echo "Generated nginx:1.26 manifest for $NAME (type=$TYPE)"

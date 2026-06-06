@@ -1,0 +1,38 @@
+---
+# Flux Bucket source — watches MinIO for Kratix-written manifests
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: flux-system
+type: Opaque
+stringData:
+  accesskey: minioadmin
+  secretkey: minioadmin
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: Bucket
+metadata:
+  name: kratix-platform-cluster
+  namespace: flux-system
+spec:
+  provider: generic
+  bucketName: kratix
+  endpoint: minio.minio-system.svc.cluster.local:9000
+  insecure: true
+  interval: 10s
+  secretRef:
+    name: minio-credentials
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: kratix-platform-cluster
+  namespace: flux-system
+spec:
+  interval: 10s
+  path: ./platform-cluster
+  prune: true
+  sourceRef:
+    kind: Bucket
+    name: kratix-platform-cluster

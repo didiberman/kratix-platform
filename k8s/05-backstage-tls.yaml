@@ -1,0 +1,62 @@
+---
+# TLS certificate via Let's Encrypt (requires ClusterIssuer 01-cert-issuer.yaml)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kratix-tls
+  namespace: backstage
+spec:
+  secretName: kratix-tls
+  dnsNames:
+    - __DOMAIN__
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod
+---
+# HTTP → HTTPS redirect middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+  namespace: backstage
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+# HTTPS IngressRoute
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: backstage-https
+  namespace: backstage
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`__DOMAIN__`)
+      services:
+        - name: backstage
+          port: 7007
+  tls:
+    secretName: kratix-tls
+---
+# HTTP → HTTPS redirect route
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: backstage-http-redirect
+  namespace: backstage
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`__DOMAIN__`)
+      middlewares:
+        - name: redirect-https
+          namespace: backstage
+      services:
+        - name: backstage
+          port: 7007

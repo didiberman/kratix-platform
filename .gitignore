@@ -1,0 +1,33 @@
+# Secrets — never commit
+secrets.env
+*.key
+*.pem
+*.p8
+kubeconfig.yaml
+cloudflare.key
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfvars
+
+# Node / Backstage
+node_modules/
+.yarn/cache/
+.pnp.*
+
+# Build artifacts
+dist/
+*.tar.gz
+skeleton.tar.gz
+bundle.tar.gz
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp

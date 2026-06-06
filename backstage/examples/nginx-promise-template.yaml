@@ -1,0 +1,127 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: nginx-promise
+  description: Managed nginx deployment via Kratix
+  tags:
+    - nginx
+    - kratix
+    - platform
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: idp
+---
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nginx-instance
+  title: Request Nginx Instance
+  description: Request a managed nginx deployment via the Kratix nginx Promise
+  tags:
+    - nginx
+    - kratix
+    - platform
+spec:
+  owner: platform-team
+  type: service
+  parameters:
+    - title: Nginx Instance Details
+      required:
+        - name
+      properties:
+        name:
+          title: Instance Name
+          type: string
+          description: Unique name for your nginx instance (lowercase, letters, numbers, hyphens only)
+          pattern: "^[a-z0-9-]+$"
+          ui:autofocus: true
+        serviceType:
+          title: Service Type
+          type: string
+          description: How the nginx service should be exposed
+          default: ClusterIP
+          enum:
+            - ClusterIP
+            - NodePort
+          enumNames:
+            - "ClusterIP (internal only)"
+            - "NodePort (exposed on node port)"
+  steps:
+    - id: submit-request
+      name: Submit Kratix ResourceRequest
+      action: kratix:resourcerequest:create
+      input:
+        name: ${{ parameters.name }}
+        namespace: default
+        apiVersion: workshop.kratix.io/v1alpha1
+        kind: Nginx
+        spec:
+          serviceType: ${{ parameters.serviceType }}
+    - id: write-catalog
+      name: Write Catalog Entry to MinIO
+      action: kratix:catalog:register
+      input:
+        name: ${{ parameters.name }}
+        promiseKind: Nginx
+        namespace: default
+        owner: platform-team
+        description: "Nginx instance ${{ parameters.name }} provisioned via Kratix"
+    - id: register-catalog
+      name: Register in Backstage Catalog
+      action: catalog:register
+      input:
+        catalogInfoUrl: http://minio.minio-system.svc.cluster.local:9000/backstage-catalog/nginx/${{ parameters.name }}.yaml
+        optional: false
+  output:
+    links:
+      - title: View in Catalog
+        icon: catalog
+        entityRef: component:default/${{ parameters.name }}
+    text:
+      - title: Request submitted
+        content: |
+          Your nginx instance **${{ parameters.name }}** has been requested.
+          Kratix will deploy nginx:1.26 via the pipeline → MinIO → Flux sync loop.
+---
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nginx-delete
+  title: Delete Nginx Instance
+  description: Deprovision a managed nginx instance
+  tags:
+    - nginx
+    - kratix
+    - platform
+spec:
+  owner: platform-team
+  type: service
+  parameters:
+    - title: Instance to Delete
+      required:
+        - name
+      properties:
+        name:
+          title: Instance Name
+          type: string
+          description: Name of the nginx instance to delete
+          pattern: "^[a-z0-9-]+$"
+          ui:autofocus: true
+  steps:
+    - id: delete-request
+      name: Delete Kratix ResourceRequest
+      action: kratix:resourcerequest:delete
+      input:
+        name: ${{ parameters.name }}
+        namespace: default
+        apiVersion: workshop.kratix.io/v1alpha1
+        kind: Nginx
+  output:
+    text:
+      - title: Instance deleted
+        content: |
+          Nginx instance **${{ parameters.name }}** has been deprovisioned.
+          Kratix will clean up the deployment via Flux shortly.
